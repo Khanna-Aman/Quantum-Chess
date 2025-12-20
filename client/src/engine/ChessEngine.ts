@@ -132,7 +132,9 @@ export function createGame(quantumMode: boolean = true, maxSuperpositions: numbe
         const owner: Player = square.color === 'w' ? 'white' : 'black';
         const type = chessPieceToType(square.type);
         const prefix = owner === 'white' ? 'w' : 'b';
-        const key = `${prefix}${type[0].toUpperCase()}`;
+        // Use 'N' for knight (standard chess notation), first letter uppercase for others
+        const pieceChar = type === 'knight' ? 'N' : type[0].toUpperCase();
+        const key = `${prefix}${pieceChar}`;
         pieceCount[key] = (pieceCount[key] || 0);
         const id = `${key}${pieceCount[key]++}`;
 
@@ -343,75 +345,97 @@ export function makeMove(
       }
 
       // Handle capture - with quantum collapse!
-      if (move.captured) {
-        // For en passant, the captured pawn is NOT at toPos - it's on the same rank as fromPos
-        // chess.js flags: 'e' = en passant capture
-        const isEnPassant = move.flags.includes('e');
-        let capturedPos = toPos;
-        if (isEnPassant) {
-          // En passant: captured pawn is on same file as toPos, but same rank as fromPos
-          capturedPos = { file: toPos.file, rank: fromPos.rank };
-        }
+      // We check BOTH:
+      // 1. Chess.js capture (move.captured) - for pieces chess.js knows about
+      // 2. Quantum superposition pieces at target - chess.js might not know about these!
 
-        for (const [id, piece] of newPieces) {
-          // Skip the piece that just moved (the attacker)
-          if (id === movedPiece.id) continue;
+      // For en passant, the captured pawn is NOT at toPos - it's on the same rank as fromPos
+      const isEnPassant = move.flags.includes('e');
+      let capturedPos = toPos;
+      if (isEnPassant) {
+        capturedPos = { file: toPos.file, rank: fromPos.rank };
+      }
 
-          if (piece.owner !== state.currentPlayer) {
-            const atCapturePos = piece.positions.find(
-              p => p.position.file === capturedPos.file && p.position.rank === capturedPos.rank
-            );
-            if (atCapturePos) {
-              // If captured piece is in superposition, COLLAPSE it first!
-              if (piece.isInSuperposition && state.quantumMode) {
-                if (collapseSeed !== undefined) setRngSeed(collapseSeed);
-                const roll = seededRandom();
+      // Check for any enemy piece at the target position (quantum or classical)
+      for (const [id, piece] of newPieces) {
+        // Skip the piece that just moved (the attacker)
+        if (id === movedPiece.id) continue;
 
-                // Check if capture succeeds based on probability at that square
-                if (roll < atCapturePos.probability) {
-                  // Capture succeeds - piece was "really" there
-                  newPieces.delete(id);
+        if (piece.owner !== state.currentPlayer) {
+          const atCapturePos = piece.positions.find(
+            p => p.position.file === capturedPos.file && p.position.rank === capturedPos.rank
+          );
+          if (atCapturePos) {
+            // If captured piece is in superposition, COLLAPSE it first!
+            if (piece.isInSuperposition && state.quantumMode) {
+              if (collapseSeed !== undefined) setRngSeed(collapseSeed);
+              const roll = seededRandom();
+
+              const pieceColor = piece.owner === 'white' ? 'w' : 'b';
+              const pieceTypeChar = piece.type === 'knight' ? 'n' : piece.type[0];
+
+              // CRITICAL: First, remove the piece from ALL its chess.js positions
+              // Chess.js only knows about ONE position (the first split target),
+              // but we need to ensure consistency
+              for (const pos of piece.positions) {
+                const sq = posToSquare(pos.position);
+                const pieceAtSq = newChess.get(sq);
+                if (pieceAtSq && pieceAtSq.color === pieceColor &&
+                  (pieceAtSq.type === pieceTypeChar ||
+                    (piece.type === 'knight' && pieceAtSq.type === 'n'))) {
+                  newChess.remove(sq);
+                }
+              }
+
+              // Check if capture succeeds based on probability at that square
+              if (roll < atCapturePos.probability) {
+                // Capture succeeds - piece was "really" there, it's already removed
+                newPieces.delete(id);
+                collapseResult = {
+                  pieceId: id,
+                  collapsedTo: posToSquare(capturedPos),
+                  probability: atCapturePos.probability,
+                  wasCapture: true
+                };
+              } else {
+                // Capture "fails" - piece wasn't there! It collapses to other position
+                const otherPositions = piece.positions.filter(
+                  p => p.position.file !== capturedPos.file || p.position.rank !== capturedPos.rank
+                );
+                if (otherPositions.length > 0) {
+                  const collapsed = otherPositions[0]!;
+                  const collapsedPiece: QuantumPiece = {
+                    ...piece,
+                    positions: [{ position: collapsed.position, probability: 1.0 }],
+                    isInSuperposition: false
+                  };
+                  newPieces.set(id, collapsedPiece);
+
+                  // Put the escaped piece at its collapse position
+                  const escapeSquare = posToSquare(collapsed.position);
+                  newChess.put({ type: pieceTypeChar as PieceSymbol, color: pieceColor }, escapeSquare);
+
                   collapseResult = {
                     pieceId: id,
-                    collapsedTo: posToSquare(capturedPos),
-                    probability: atCapturePos.probability,
-                    wasCapture: true
+                    collapsedTo: escapeSquare,
+                    probability: collapsed.probability,
+                    wasCapture: false
                   };
-                } else {
-                  // Capture "fails" - piece wasn't there! It collapses to other position
-                  const otherPositions = piece.positions.filter(
-                    p => p.position.file !== capturedPos.file || p.position.rank !== capturedPos.rank
-                  );
-                  if (otherPositions.length > 0) {
-                    const collapsed = otherPositions[0]!;
-                    const collapsedPiece: QuantumPiece = {
-                      ...piece,
-                      positions: [{ position: collapsed.position, probability: 1.0 }],
-                      isInSuperposition: false
-                    };
-                    newPieces.set(id, collapsedPiece);
-
-                    // CRITICAL: Put the escaped piece back on the chess.js board!
-                    // Chess.js thinks it captured the piece, but it escaped to another position
-                    const escapeSquare = posToSquare(collapsed.position);
-                    const pieceColor = piece.owner === 'white' ? 'w' : 'b';
-                    const pieceTypeChar = piece.type === 'knight' ? 'n' : piece.type[0];
-                    newChess.put({ type: pieceTypeChar as PieceSymbol, color: pieceColor }, escapeSquare);
-
-                    collapseResult = {
-                      pieceId: id,
-                      collapsedTo: escapeSquare,
-                      probability: collapsed.probability,
-                      wasCapture: false
-                    };
-                  }
                 }
-              } else {
-                // Normal capture
-                newPieces.delete(id);
               }
-              break;
+            } else {
+              // Classical piece capture - delete if chess.js captured OR if our piece moved to this square
+              // (handles case where chess.js didn't know about the enemy piece)
+              newPieces.delete(id);
+
+              // Also remove from chess.js if it's still there
+              const captureSquare = posToSquare(capturedPos);
+              const pieceStillThere = newChess.get(captureSquare);
+              if (pieceStillThere && pieceStillThere.color !== (state.currentPlayer === 'white' ? 'w' : 'b')) {
+                newChess.remove(captureSquare);
+              }
             }
+            break;
           }
         }
       }
@@ -483,6 +507,16 @@ export function makeSplitMove(
 
   if (to1 === to2) {
     return { success: false, newState: state, error: 'Split targets must be different' };
+  }
+
+  // Split cannot capture - check if target squares have enemy pieces
+  const pieceAtTo1 = findPieceAtSquare(state, to1);
+  const pieceAtTo2 = findPieceAtSquare(state, to2);
+  if (pieceAtTo1 && pieceAtTo1.owner !== state.currentPlayer) {
+    return { success: false, newState: state, error: 'Cannot split to a square with an enemy piece' };
+  }
+  if (pieceAtTo2 && pieceAtTo2.owner !== state.currentPlayer) {
+    return { success: false, newState: state, error: 'Cannot split to a square with an enemy piece' };
   }
 
   // Find the piece
@@ -637,17 +671,46 @@ export function getProbabilityAtSquare(state: QuantumGameState, square: Square):
 /**
  * Get board position for react-chessboard
  * Returns { [square]: { pieceType: "wK" } } format
+ *
+ * IMPORTANT: When multiple pieces are on the same square (e.g., a classical piece
+ * and a superposition piece), we prioritize classical pieces over superposition pieces.
+ * This ensures that when a classical piece moves to a square occupied by a quantum
+ * superposition, the classical piece is visible and the superposition is "underneath".
  */
 export function getBoardPosition(state: QuantumGameState): Record<string, { pieceType: string }> {
   const position: Record<string, { pieceType: string }> = {};
+  // Track which squares have classical (non-superposition) pieces
+  const classicalSquares = new Set<string>();
 
+  // First pass: Place classical pieces (not in superposition)
   for (const [, piece] of state.pieces) {
-    for (const qPos of piece.positions) {
-      if (qPos.probability > 0.01) {
-        const square = posToSquare(qPos.position);
-        const color = piece.owner === 'white' ? 'w' : 'b';
-        const typeChar = piece.type === 'knight' ? 'N' : piece.type[0].toUpperCase();
-        position[square] = { pieceType: `${color}${typeChar}` };
+    if (!piece.isInSuperposition) {
+      for (const qPos of piece.positions) {
+        if (qPos.probability > 0.01) {
+          const square = posToSquare(qPos.position);
+          const color = piece.owner === 'white' ? 'w' : 'b';
+          const typeChar = piece.type === 'knight' ? 'N' : piece.type[0].toUpperCase();
+          position[square] = { pieceType: `${color}${typeChar}` };
+          classicalSquares.add(square);
+        }
+      }
+    }
+  }
+
+  // Second pass: Place superposition pieces, but only on empty squares
+  // (don't overwrite classical pieces)
+  for (const [, piece] of state.pieces) {
+    if (piece.isInSuperposition) {
+      for (const qPos of piece.positions) {
+        if (qPos.probability > 0.01) {
+          const square = posToSquare(qPos.position);
+          // Only place superposition piece if no classical piece is there
+          if (!classicalSquares.has(square)) {
+            const color = piece.owner === 'white' ? 'w' : 'b';
+            const typeChar = piece.type === 'knight' ? 'N' : piece.type[0].toUpperCase();
+            position[square] = { pieceType: `${color}${typeChar}` };
+          }
+        }
       }
     }
   }

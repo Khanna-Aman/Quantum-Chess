@@ -16,7 +16,7 @@ export function RulesModal({ isOpen, onClose }: RulesModalProps) {
 
         <section>
           <h3>🎯 Objective</h3>
-          <p>Capture the opponent's King to win! Unlike regular chess, there's no checkmate - just capture the King directly.</p>
+          <p>Checkmate the opponent's King to win! Standard chess win conditions apply - checkmate, stalemate (draw), or resignation.</p>
         </section>
 
         <section>
@@ -32,6 +32,7 @@ export function RulesModal({ isOpen, onClose }: RulesModalProps) {
             <li>The piece enters <strong>superposition</strong> - it exists at both squares simultaneously with 50% probability each</li>
             <li>Superposition pieces are shown with colored borders and probability badges</li>
             <li><strong>Kings and Pawns cannot split</strong> - only Queen, Rook, Bishop, Knight can enter superposition</li>
+            <li><strong>Splits cannot capture</strong> - both destination squares must be empty</li>
           </ul>
         </section>
 

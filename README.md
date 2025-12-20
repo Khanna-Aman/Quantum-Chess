@@ -159,6 +159,7 @@ Once peers connect, all game data flows directly P2P.
 - Any piece (except Kings and Pawns) can perform "split" moves
 - Click "Split Move", select a piece, then choose two valid destinations
 - The piece enters superposition at both squares (50% probability each)
+- **Splits cannot capture** — both destination squares must be empty
 
 ### Measurement (Collapse)
 - Capturing a piece in superposition triggers quantum measurement
@@ -168,8 +169,10 @@ Once peers connect, all game data flows directly P2P.
 - Uses seeded RNG for deterministic results across both players
 
 ### Win Condition
-- **Capture the opponent's King to win** (no checkmate - just take the King!)
-- Kings and Pawns cannot split - only Queen, Rook, Bishop, Knight can enter superposition
+- **Checkmate the opponent's King to win** — standard chess win conditions apply!
+- Draws: Stalemate, threefold repetition, 50-move rule, insufficient material
+- Resignation is also supported
+- **Kings and Pawns cannot split** — only Queen, Rook, Bishop, Knight can enter superposition
 
 ## 🔒 Security & Fair Play
 

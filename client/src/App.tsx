@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chessboard } from './components/Chessboard';
+import { GameEndScreen } from './components/GameEndScreen';
 import { Lobby } from './components/Lobby';
 import { MoveNotation } from './components/MoveNotation';
+import { RematchModal } from './components/RematchModal';
 import { RulesModal } from './components/RulesModal/RulesModal';
 import { ToastContainer } from './components/Toast';
-import { getGameLog, toQuantumFEN } from './engine/ChessEngine';
 import { useChessGame } from './hooks/useChessGame';
 import { useToast } from './hooks/useToast';
 import './App.css';
@@ -30,6 +31,8 @@ function App() {
     splitMode,
     splitFrom,
     splitTo1,
+    rematchRequested,
+    rematchReceived,
     createRoom,
     joinRoom,
     executeMove,
@@ -37,7 +40,10 @@ function App() {
     toggleSplitMode,
     handleSplitSelection,
     toggleQuantumMode,
-    resign
+    resign,
+    requestRematch,
+    acceptRematch,
+    declineRematch
   } = useChessGame({ serverUrl: SERVER_URL });
 
   // Track if we've shown the connected message
@@ -51,6 +57,9 @@ function App() {
 
   // Rules modal state
   const [showRulesModal, setShowRulesModal] = useState(false);
+
+  // Game end modal dismissed state
+  const [gameEndDismissed, setGameEndDismissed] = useState(false);
 
   // Show toast notifications for state changes
   useEffect(() => {
@@ -146,13 +155,7 @@ function App() {
           {gameState.chess.isCheck() && !gameOver && (
             <div className="check-warning">⚠️ Check!</div>
           )}
-          {lastCollapse && (
-            <div className="collapse-info">
-              🎲 Collapse: {lastCollapse.pieceId} → {lastCollapse.collapsedTo}
-              ({Math.round(lastCollapse.probability * 100)}%)
-              {lastCollapse.wasCapture ? ' ✓ Captured!' : ' ✗ Escaped!'}
-            </div>
-          )}
+
         </div>
 
         <div className="board-and-notation">
@@ -197,28 +200,6 @@ function App() {
               🏳️ Resign
             </button>
           )}
-
-          {/* Debug/Log buttons */}
-          <button
-            className="log-btn"
-            onClick={() => {
-              const log = getGameLog(gameState);
-              navigator.clipboard.writeText(log);
-              success('Game log copied!', 2000);
-            }}
-          >
-            📋 Copy Log
-          </button>
-          <button
-            className="log-btn"
-            onClick={() => {
-              const qfen = toQuantumFEN(gameState);
-              navigator.clipboard.writeText(qfen);
-              success('QFEN copied!', 2000);
-            }}
-          >
-            📝 Copy QFEN
-          </button>
         </div>
 
         {/* Resign confirmation popup */}
@@ -267,6 +248,28 @@ function App() {
 
         {/* Rules modal */}
         <RulesModal isOpen={showRulesModal} onClose={() => setShowRulesModal(false)} />
+
+        {/* Game End modal */}
+        {gameOver && !gameEndDismissed && (
+          <GameEndScreen
+            gameState={gameState}
+            playerColor={playerColor}
+            onOk={() => setGameEndDismissed(true)}
+            onRematch={requestRematch}
+            rematchRequested={rematchRequested}
+          />
+        )}
+
+        {/* Rematch Request modal - shows when opponent requests rematch */}
+        {rematchReceived && (
+          <RematchModal
+            onAccept={() => {
+              acceptRematch();
+              setGameEndDismissed(false);
+            }}
+            onDecline={declineRematch}
+          />
+        )}
       </div>
     </>
   );

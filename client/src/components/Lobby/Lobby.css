@@ -20,6 +20,19 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   position: relative;
   z-index: 10;
+  overflow: hidden;
+}
+
+/* Ensure all content appears above the particle field */
+.lobby-card>*:not(.particle-field) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Main interactive area - hover here triggers quantum observation */
+.lobby-main-area {
+  position: relative;
+  z-index: 1;
 }
 
 .lobby-card h1 {

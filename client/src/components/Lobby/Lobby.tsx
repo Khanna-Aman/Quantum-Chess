@@ -1,6 +1,8 @@
 import { useState, lazy, Suspense } from 'react';
 import './Lobby.css';
 import { RulesModal } from '../RulesModal/RulesModal';
+import { QuantumTitle } from '../QuantumTitle';
+import { ParticleField } from '../ParticleField';
 
 // Lazy load the 3D animation to reduce initial bundle size
 const QuantumAnimation = lazy(() =>
@@ -30,6 +32,7 @@ export function Lobby({
   const [copied, setCopied] = useState(false);
   const [maxSuperpositions, setMaxSuperpositions] = useState(2);
   const [showRules, setShowRules] = useState(false);
+  const [isCardHovered, setIsCardHovered] = useState(false);
 
   const handleCreateRoom = async () => {
     await onCreateRoom(maxSuperpositions);
@@ -86,71 +89,84 @@ export function Lobby({
         <QuantumAnimation />
       </Suspense>
 
+      {/* Interactive Particle Field - full screen, reacts to mouse */}
+      <ParticleField particleCount={60} />
+
       <div className="lobby-card">
-        <h1>⚛️ Quantum Chess</h1>
-        <p className="subtitle">
-          A peer-to-peer quantum chess game where pieces exist in superposition
-        </p>
 
-        {error && (
-          <div className="error-message">
-            ⚠️ {error}
-          </div>
-        )}
+        {/* Main interactive area - hover triggers quantum collapse */}
+        <div
+          className="lobby-main-area"
+          onMouseEnter={() => setIsCardHovered(true)}
+          onMouseLeave={() => setIsCardHovered(false)}
+        >
+          <QuantumTitle isObserved={isCardHovered} />
+          <p className="subtitle">
+            A peer-to-peer quantum chess game where pieces exist in superposition
+          </p>
 
-        <div className="lobby-actions">
-          <div className="action-section">
-            <h2>Create New Game</h2>
-            <p>Start a new game and invite a friend</p>
+          {error && (
+            <div className="error-message">
+              ⚠️ {error}
+            </div>
+          )}
 
-            <div className="settings-row">
-              <label htmlFor="maxSuperpositions">Max Superpositions per player:</label>
-              <select
-                id="maxSuperpositions"
-                value={maxSuperpositions}
-                onChange={(e) => setMaxSuperpositions(parseInt(e.target.value))}
-                className="settings-select"
+          <div className="lobby-actions">
+            <div className="action-section">
+              <h2>Create New Game</h2>
+              <p>Start a new game and invite a friend</p>
+
+              <div className="settings-row">
+                <label htmlFor="maxSuperpositions">Max Superpositions per player:</label>
+                <select
+                  id="maxSuperpositions"
+                  value={maxSuperpositions}
+                  onChange={(e) => setMaxSuperpositions(parseInt(e.target.value))}
+                  className="settings-select"
+                >
+                  <option value={1}>1 piece</option>
+                  <option value={2}>2 pieces</option>
+                  <option value={3}>3 pieces</option>
+                  <option value={4}>4 pieces</option>
+                  <option value={5}>5 pieces</option>
+                  <option value={6}>6 pieces</option>
+                  <option value={7}>7 pieces</option>
+                </select>
+              </div>
+
+              <button
+                onClick={handleCreateRoom}
+                disabled={isConnecting}
+                className="primary-btn"
               >
-                <option value={1}>1 piece</option>
-                <option value={2}>2 pieces</option>
-                <option value={3}>3 pieces</option>
-                <option value={4}>4 pieces</option>
-                <option value={5}>5 pieces</option>
-              </select>
+                {isConnecting ? 'Creating...' : '🎮 Create Room'}
+              </button>
             </div>
 
-            <button
-              onClick={handleCreateRoom}
-              disabled={isConnecting}
-              className="primary-btn"
-            >
-              {isConnecting ? 'Creating...' : '🎮 Create Room'}
-            </button>
-          </div>
+            <div className="divider">
+              <span>OR</span>
+            </div>
 
-          <div className="divider">
-            <span>OR</span>
-          </div>
-
-          <div className="action-section">
-            <h2>Join Existing Game</h2>
-            <p>Enter a room code to join</p>
-            <div className="join-form">
-              <input
-                type="text"
-                placeholder="Enter room code"
-                value={joinRoomId}
-                onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())}
-                maxLength={8}
-                disabled={isConnecting}
-              />
-              <button
-                onClick={handleJoinRoom}
-                disabled={isConnecting || !joinRoomId.trim()}
-                className="secondary-btn"
-              >
-                {isConnecting ? 'Joining...' : '🚀 Join'}
-              </button>
+            <div className="action-section">
+              <h2>Join Existing Game</h2>
+              <p>Enter a room code to join</p>
+              <div className="join-form">
+                <input
+                  type="text"
+                  placeholder="Enter room code"
+                  value={joinRoomId}
+                  onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())}
+                  maxLength={8}
+                  disabled={isConnecting}
+                />
+                <button
+                  onClick={handleJoinRoom}
+                  disabled={isConnecting || !joinRoomId.trim()}
+                  className="secondary-btn"
+                >
+                  {isConnecting ? 'Joining...' : '🚀 Join'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -161,7 +177,7 @@ export function Lobby({
             <li><strong>Split moves</strong> put pieces in superposition (50% at two squares)</li>
             <li><strong>Captures</strong> on superposition pieces collapse them randomly</li>
             <li>If collapse favors you, <strong>capture succeeds</strong>; otherwise, the piece <strong>escapes!</strong></li>
-            <li><strong>Capture the King to win!</strong> (no checkmate in quantum chess)</li>
+            <li><strong>Checkmate the King to win!</strong> Standard chess win conditions apply.</li>
           </ul>
         </div>
       </div>

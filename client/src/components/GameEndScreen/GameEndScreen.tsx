@@ -1,18 +1,20 @@
-import type { GameState, Player } from '@engine/types';
+import type { QuantumGameState, Player } from '../../engine/ChessEngine';
 import './GameEndScreen.css';
 
 interface GameEndScreenProps {
-  gameState: GameState;
+  gameState: QuantumGameState;
   playerColor: Player;
+  onOk: () => void;
   onRematch: () => void;
-  onLeave: () => void;
+  rematchRequested: boolean;
 }
 
 export function GameEndScreen({
   gameState,
   playerColor,
+  onOk,
   onRematch,
-  onLeave
+  rematchRequested
 }: GameEndScreenProps) {
   const isWinner =
     (gameState.gameStatus === 'white_wins' && playerColor === 'white') ||
@@ -27,27 +29,32 @@ export function GameEndScreen({
   };
 
   const getSubtitle = () => {
+    // Check for resignation
+    if (gameState.resultReason === 'resignation') {
+      return gameState.gameStatus === 'white_wins'
+        ? 'Black resigned'
+        : 'White resigned';
+    }
     switch (gameState.gameStatus) {
-      case 'white_wins': return 'White wins by King capture';
-      case 'black_wins': return 'Black wins by King capture';
+      case 'white_wins': return 'White wins by checkmate!';
+      case 'black_wins': return 'Black wins by checkmate!';
       case 'draw_stalemate': return 'Game ended in stalemate';
       case 'draw_50_move': return 'Draw by 50-move rule';
       case 'draw_agreement': return 'Draw by agreement';
+      case 'draw_repetition': return 'Draw by threefold repetition';
+      case 'draw_insufficient': return 'Draw by insufficient material';
       default: return '';
     }
   };
 
-  // Count pieces - handle both Map and Record types
-  const piecesArray = gameState.pieces instanceof Map
-    ? Array.from(gameState.pieces.values())
-    : Object.values(gameState.pieces);
-
+  // Count pieces
+  const piecesArray = Array.from(gameState.pieces.values());
   const whitePieces = piecesArray.filter(p => p.owner === 'white').length;
   const blackPieces = piecesArray.filter(p => p.owner === 'black').length;
 
-  // Count quantum events in move history (check move.type field)
+  // Count quantum moves (split)
   const quantumMoves = gameState.moveHistory.filter(
-    m => m.move.type === 'split' || m.move.type === 'merge'
+    m => m.type === 'split'
   ).length;
 
   return (
@@ -69,7 +76,7 @@ export function GameEndScreen({
             </div>
             <div className="stat">
               <span className="stat-value">{quantumMoves}</span>
-              <span className="stat-label">Quantum Moves</span>
+              <span className="stat-label">Quantum Splits</span>
             </div>
             <div className="stat">
               <span className="stat-value">{16 - whitePieces}/{16 - blackPieces}</span>
@@ -79,11 +86,15 @@ export function GameEndScreen({
         </div>
 
         <div className="end-actions">
-          <button className="action-btn rematch-btn" onClick={onRematch}>
-            🔄 Rematch
+          <button className="action-btn ok-btn" onClick={onOk}>
+            ✓ OK
           </button>
-          <button className="action-btn leave-btn" onClick={onLeave}>
-            🚪 Leave
+          <button
+            className={`action-btn rematch-btn ${rematchRequested ? 'pending' : ''}`}
+            onClick={onRematch}
+            disabled={rematchRequested}
+          >
+            {rematchRequested ? '⏳ Waiting...' : '🔄 Rematch'}
           </button>
         </div>
       </div>

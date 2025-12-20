@@ -14,10 +14,11 @@ interface MoveNotationProps {
   isGameOver?: boolean;
 }
 
-function formatMoveNotation(move: MoveRecord, moveIndex: number): { notation: string; isQuantum: boolean } {
+function formatMoveNotation(move: MoveRecord, _moveIndex: number): { notation: string; isQuantum: boolean } {
   // Format piece symbol (uppercase for pieces, empty for pawns)
+  // Piece ID format: wK0 (white King), bN1 (black Knight), wP2 (white Pawn), etc.
   const pieceChar = move.piece.charAt(1).toUpperCase();
-  const pieceSymbol = pieceChar === 'P' ? '' : pieceChar;
+  const pieceSymbol = pieceChar === 'P' ? '' : pieceChar; // K for King, N for Knight, etc.
 
   const from = move.from;
   const to = move.to;
@@ -68,29 +69,29 @@ function formatMoveNotation(move: MoveRecord, moveIndex: number): { notation: st
 
 export function MoveNotation({
   gameState,
-  viewingMoveIndex,
-  onNavigate,
-  isGameOver = false
+  viewingMoveIndex: _viewingMoveIndex,
+  onNavigate: _onNavigate,
+  isGameOver: _isGameOver = false
 }: MoveNotationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const moves = gameState.moveHistory;
   const totalMoves = moves.length;
-  const isViewingHistory = viewingMoveIndex !== null;
-  const currentViewIndex = viewingMoveIndex ?? totalMoves - 1;
 
-  // Auto-scroll to bottom when new moves are added (only in live view)
+  // Auto-scroll to bottom when new moves are added
   useEffect(() => {
-    if (scrollRef.current && !isViewingHistory) {
+    if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [totalMoves, isViewingHistory]);
+  }, [totalMoves]);
 
-  // Navigation handlers
-  const goToStart = () => onNavigate?.(0);
-  const goBack = () => onNavigate?.(Math.max(0, currentViewIndex - 1));
-  const goForward = () => onNavigate?.(Math.min(totalMoves - 1, currentViewIndex + 1));
-  const goToEnd = () => onNavigate?.(null); // null = live view
+  // TODO: Navigation handlers - implement when history viewing is added
+  // const isViewingHistory = _viewingMoveIndex !== null;
+  // const currentViewIndex = _viewingMoveIndex ?? totalMoves - 1;
+  // const goToStart = () => _onNavigate?.(0);
+  // const goBack = () => _onNavigate?.(Math.max(0, currentViewIndex - 1));
+  // const goForward = () => _onNavigate?.(Math.min(totalMoves - 1, currentViewIndex + 1));
+  // const goToEnd = () => _onNavigate?.(null);
 
   // Group moves into pairs (white, black)
   const movePairs: Array<{
@@ -130,16 +131,10 @@ export function MoveNotation({
           movePairs.map((pair) => (
             <div key={pair.number} className="notation-row">
               <span className="move-num">{pair.number}.</span>
-              <span
-                className={`white-move ${pair.white?.isQuantum ? 'quantum' : ''} ${pair.whiteIndex === currentViewIndex && isViewingHistory ? 'viewing' : ''}`}
-                onClick={() => onNavigate?.(pair.whiteIndex)}
-              >
+              <span className={`white-move ${pair.white?.isQuantum ? 'quantum' : ''}`}>
                 {pair.white?.notation || '...'}
               </span>
-              <span
-                className={`black-move ${pair.black?.isQuantum ? 'quantum' : ''} ${pair.blackIndex === currentViewIndex && isViewingHistory ? 'viewing' : ''}`}
-                onClick={() => pair.black && onNavigate?.(pair.blackIndex)}
-              >
+              <span className={`black-move ${pair.black?.isQuantum ? 'quantum' : ''}`}>
                 {pair.black?.notation || ''}
               </span>
             </div>
@@ -147,7 +142,7 @@ export function MoveNotation({
         )}
       </div>
 
-      {/* Navigation controls - show when game is over or viewing history */}
+      {/* Navigation controls - TODO: Implement history viewing (requires storing position snapshots)
       {(isGameOver || isViewingHistory || totalMoves > 0) && (
         <div className="notation-nav">
           <button onClick={goToStart} disabled={currentViewIndex <= 0} title="First move">
@@ -164,6 +159,7 @@ export function MoveNotation({
           </button>
         </div>
       )}
+      */}
     </div>
   );
 }

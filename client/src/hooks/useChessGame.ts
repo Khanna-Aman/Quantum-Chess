@@ -18,7 +18,7 @@ import {
 import { WebRTCConnection, type ConnectionState } from '../networking';
 
 export interface GameMessage {
-  type: 'move' | 'split' | 'sync_request' | 'sync_response' | 'fen' | 'resign';
+  type: 'move' | 'split' | 'sync_request' | 'sync_response' | 'fen' | 'resign' | 'rematch_request' | 'rematch_accept' | 'rematch_decline';
   from?: string;
   to?: string;
   to2?: string; // For split moves
@@ -43,6 +43,10 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
   const [splitMode, setSplitMode] = useState(false);
   const [splitFrom, setSplitFrom] = useState<Square | null>(null);
   const [splitTo1, setSplitTo1] = useState<Square | null>(null);
+
+  // Rematch state
+  const [rematchRequested, setRematchRequested] = useState(false); // We sent a request
+  const [rematchReceived, setRematchReceived] = useState(false);   // We received a request
 
   const connectionRef = useRef<WebRTCConnection | null>(null);
 
@@ -118,6 +122,28 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
             resultReason: 'resignation'
           };
         });
+        break;
+
+      case 'rematch_request':
+        // Opponent wants a rematch
+        console.log('[Game] Rematch request received');
+        setRematchReceived(true);
+        break;
+
+      case 'rematch_accept':
+        // Opponent accepted our rematch request - start new game
+        console.log('[Game] Rematch accepted!');
+        setRematchRequested(false);
+        setRematchReceived(false);
+        // Reset game state with swapped colors
+        setPlayerColor(prev => prev === 'white' ? 'black' : 'white');
+        setGameState(createGame(true, maxSuperpositionsRef.current));
+        break;
+
+      case 'rematch_decline':
+        // Opponent declined our rematch request
+        console.log('[Game] Rematch declined');
+        setRematchRequested(false);
         break;
     }
   }, []);
@@ -318,6 +344,36 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     setSplitMode(false);
     setSplitFrom(null);
     setSplitTo1(null);
+    setRematchRequested(false);
+    setRematchReceived(false);
+  }, []);
+
+  // Request a rematch
+  const requestRematch = useCallback(() => {
+    if (!connectionRef.current) return;
+    console.log('[Game] Sending rematch request');
+    connectionRef.current.send({ type: 'rematch_request' });
+    setRematchRequested(true);
+  }, []);
+
+  // Accept a rematch request
+  const acceptRematch = useCallback(() => {
+    if (!connectionRef.current) return;
+    console.log('[Game] Accepting rematch');
+    connectionRef.current.send({ type: 'rematch_accept' });
+    setRematchReceived(false);
+    setRematchRequested(false);
+    // Reset game state with swapped colors
+    setPlayerColor(prev => prev === 'white' ? 'black' : 'white');
+    setGameState(createGame(true, maxSuperpositionsRef.current));
+  }, []);
+
+  // Decline a rematch request
+  const declineRematch = useCallback(() => {
+    if (!connectionRef.current) return;
+    console.log('[Game] Declining rematch');
+    connectionRef.current.send({ type: 'rematch_decline' });
+    setRematchReceived(false);
   }, []);
 
   useEffect(() => {
@@ -338,9 +394,14 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     splitFrom,
     splitTo1,
 
+    // Rematch state
+    rematchRequested,
+    rematchReceived,
+
     // Actions
     createRoom, joinRoom, executeMove, executeSplitMove, disconnect,
-    toggleSplitMode, handleSplitSelection, toggleQuantumMode, resign
+    toggleSplitMode, handleSplitSelection, toggleQuantumMode, resign,
+    requestRematch, acceptRematch, declineRematch
   };
 }
 
