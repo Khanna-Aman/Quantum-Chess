@@ -1,5 +1,10 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import './Lobby.css';
+
+// Lazy load the 3D animation to reduce initial bundle size
+const QuantumAnimation = lazy(() =>
+  import('../QuantumAnimation').then(m => ({ default: m.QuantumAnimation }))
+);
 
 interface LobbyProps {
   onCreateRoom: (maxSuperpositions: number) => Promise<void>;
@@ -74,6 +79,11 @@ export function Lobby({
 
   return (
     <div className="lobby">
+      {/* 3D Quantum Animation Background - Lazy loaded */}
+      <Suspense fallback={null}>
+        <QuantumAnimation />
+      </Suspense>
+
       <div className="lobby-card">
         <h1>⚛️ Quantum Chess</h1>
         <p className="subtitle">
