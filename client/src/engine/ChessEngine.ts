@@ -216,6 +216,53 @@ export function getLegalMoves(state: QuantumGameState): ChessMove[] {
 }
 
 /**
+ * Get legal moves for a piece at a specific square, handling quantum positions.
+ * If the piece is in superposition and at a position chess.js doesn't know about,
+ * we temporarily place the piece there to compute valid moves.
+ */
+export function getLegalMovesFromSquare(state: QuantumGameState, square: Square): ChessMove[] {
+  const piece = findPieceAtSquare(state, square);
+
+  // First try getting moves directly from chess.js
+  const directMoves = state.chess.moves({ square, verbose: true });
+  if (directMoves.length > 0) {
+    return directMoves;
+  }
+
+  // If no moves and piece is in superposition, compute moves from this position
+  if (piece && piece.isInSuperposition) {
+    // Find where chess.js currently has this piece
+    let chessSquare: Square | null = null;
+    for (const qPos of piece.positions) {
+      const sq = posToSquare(qPos.position);
+      const pieceAtSq = state.chess.get(sq);
+      if (pieceAtSq &&
+        pieceAtSq.color === (piece.owner === 'white' ? 'w' : 'b') &&
+        chessPieceToType(pieceAtSq.type) === piece.type) {
+        chessSquare = sq;
+        break;
+      }
+    }
+
+    if (chessSquare && chessSquare !== square) {
+      // Temporarily move the piece to compute legal moves from 'square'
+      const tempChess = new Chess(state.chess.fen());
+      const pieceColor = piece.owner === 'white' ? 'w' : 'b';
+      const pieceTypeChar = (piece.type === 'knight' ? 'n' : piece.type[0]) as PieceSymbol;
+
+      // Remove from chess.js position and place at clicked position
+      tempChess.remove(chessSquare);
+      tempChess.put({ type: pieceTypeChar, color: pieceColor }, square);
+
+      // Get moves from the temporary position
+      return tempChess.moves({ square, verbose: true });
+    }
+  }
+
+  return [];
+}
+
+/**
  * Check if a move is legal
  */
 export function isLegalMove(state: QuantumGameState, from: Square, to: Square): boolean {
@@ -572,11 +619,23 @@ export function makeSplitMove(
   const newChess = new Chess(state.chess.fen());
   newChess.move({ from, to: to1 });
 
+  // Check game status after split move (checkmate, stalemate, etc.)
+  let gameStatus: GameStatus = 'active';
+  if (newChess.isCheckmate()) {
+    gameStatus = state.currentPlayer === 'white' ? 'white_wins' : 'black_wins';
+  } else if (newChess.isStalemate()) {
+    gameStatus = 'draw_stalemate';
+  } else if (newChess.isDraw()) {
+    if (newChess.isThreefoldRepetition()) gameStatus = 'draw_repetition';
+    else if (newChess.isInsufficientMaterial()) gameStatus = 'draw_insufficient';
+    else gameStatus = 'draw_50_move';
+  }
+
   const newState: QuantumGameState = {
     pieces: newPieces,
     currentPlayer: state.currentPlayer === 'white' ? 'black' : 'white',
     turnNumber: state.turnNumber + 1,
-    gameStatus: state.gameStatus,
+    gameStatus,
     moveHistory: [...state.moveHistory, {
       from, to: to1, to2,
       piece: piece.id,

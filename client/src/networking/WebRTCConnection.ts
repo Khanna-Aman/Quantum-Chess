@@ -17,13 +17,7 @@ export interface WebRTCCallbacks {
   onStateChange: (state: ConnectionState) => void;
   onMessage: (data: unknown) => void;
   onGameSeed: (seed: number) => void;
-  onReconnecting?: (attempt: number) => void;
-}
-
-interface ReconnectConfig {
-  maxAttempts: number;
-  baseDelayMs: number;
-  maxDelayMs: number;
+  onPeerDisconnected?: () => void;  // Called when peer disconnects (game ends)
 }
 
 // Free public STUN servers
@@ -35,12 +29,6 @@ const ICE_SERVERS: RTCConfiguration = {
   ]
 };
 
-const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
-  maxAttempts: 5,
-  baseDelayMs: 1000,
-  maxDelayMs: 10000
-};
-
 export class WebRTCConnection {
   private pc: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
@@ -48,83 +36,17 @@ export class WebRTCConnection {
   private callbacks: WebRTCCallbacks;
   private isHost: boolean = false;
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private hasNotifiedDisconnect: boolean = false; // Prevent duplicate disconnect notifications
+  private isConnected: boolean = false; // Track if we ever successfully connected
 
-  // Reconnection state
-  private serverUrl: string = '';
-  private roomId: string = '';
-  private reconnectAttempts: number = 0;
-  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-  private reconnectConfig: ReconnectConfig;
-  private isReconnecting: boolean = false;
-
-  constructor(callbacks: WebRTCCallbacks, reconnectConfig?: Partial<ReconnectConfig>) {
+  constructor(callbacks: WebRTCCallbacks) {
     this.callbacks = callbacks;
-    this.reconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, ...reconnectConfig };
-  }
-
-  /**
-   * Calculate delay with exponential backoff
-   */
-  private getReconnectDelay(): number {
-    const delay = Math.min(
-      this.reconnectConfig.baseDelayMs * Math.pow(2, this.reconnectAttempts),
-      this.reconnectConfig.maxDelayMs
-    );
-    // Add jitter (±20%)
-    return delay * (0.8 + Math.random() * 0.4);
-  }
-
-  /**
-   * Attempt to reconnect
-   */
-  private async attemptReconnect(): Promise<void> {
-    if (this.reconnectAttempts >= this.reconnectConfig.maxAttempts) {
-      console.log('[Reconnect] Max attempts reached, giving up');
-      this.callbacks.onStateChange('failed');
-      return;
-    }
-
-    this.reconnectAttempts++;
-    this.isReconnecting = true;
-    this.callbacks.onReconnecting?.(this.reconnectAttempts);
-    console.log(`[Reconnect] Attempt ${this.reconnectAttempts}/${this.reconnectConfig.maxAttempts}`);
-
-    const delay = this.getReconnectDelay();
-    console.log(`[Reconnect] Waiting ${Math.round(delay)}ms...`);
-
-    this.reconnectTimeout = setTimeout(async () => {
-      try {
-        await this.connect(this.serverUrl, this.roomId, true);
-      } catch (err) {
-        console.error('[Reconnect] Failed:', err);
-        await this.attemptReconnect();
-      }
-    }, delay);
-  }
-
-  /**
-   * Cancel any pending reconnection
-   */
-  private cancelReconnect(): void {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-    this.isReconnecting = false;
   }
 
   /**
    * Connect to signaling server and establish P2P connection
    */
-  async connect(serverUrl: string, roomId: string, isReconnect: boolean = false): Promise<void> {
-    // Store connection info for reconnection
-    this.serverUrl = serverUrl;
-    this.roomId = roomId;
-
-    if (!isReconnect) {
-      this.reconnectAttempts = 0;
-    }
-
+  async connect(serverUrl: string, roomId: string): Promise<void> {
     this.callbacks.onStateChange('connecting');
 
     // Connect to signaling WebSocket
@@ -133,9 +55,6 @@ export class WebRTCConnection {
 
     this.ws.onopen = () => {
       console.log('[WS] Connected to signaling server');
-      // Reset reconnect attempts on successful connection
-      this.reconnectAttempts = 0;
-      this.isReconnecting = false;
     };
 
     this.ws.onmessage = async (event) => {
@@ -145,16 +64,16 @@ export class WebRTCConnection {
 
     this.ws.onerror = (error) => {
       console.error('[WS] Error:', error);
-      if (!this.isReconnecting) {
-        this.attemptReconnect();
-      }
+      this.callbacks.onStateChange('failed');
     };
 
     this.ws.onclose = () => {
       console.log('[WS] Disconnected from signaling server');
-      // Attempt reconnection if we were connected and this wasn't intentional
-      if (!this.isReconnecting && this.reconnectAttempts === 0) {
-        this.attemptReconnect();
+      // If WebSocket closes while we were connected, it means signaling died
+      // The DataChannel might still work for a bit, but notify anyway
+      // (notifyDisconnect is idempotent, so this is safe)
+      if (this.isConnected) {
+        this.notifyDisconnect();
       }
     };
   }
@@ -169,7 +88,6 @@ export class WebRTCConnection {
           this.callbacks.onGameSeed(message.game_seed);
         }
         if (this.isHost) {
-          // Host waits for guest
           console.log('[P2P] Waiting for peer to join...');
         }
         break;
@@ -197,7 +115,9 @@ export class WebRTCConnection {
         break;
 
       case 'peer_disconnected':
-        this.callbacks.onStateChange('disconnected');
+        // Peer has disconnected - game ends
+        console.log('[P2P] Peer disconnected (via signaling server)');
+        this.notifyDisconnect();
         break;
     }
   }
@@ -215,11 +135,22 @@ export class WebRTCConnection {
     };
 
     this.pc.onconnectionstatechange = () => {
-      console.log('[P2P] Connection state:', this.pc?.connectionState);
-      if (this.pc?.connectionState === 'connected') {
+      const state = this.pc?.connectionState;
+      console.log('[P2P] Connection state:', state);
+      if (state === 'connected') {
         this.callbacks.onStateChange('connected');
-      } else if (this.pc?.connectionState === 'failed') {
+      } else if (state === 'failed') {
         this.callbacks.onStateChange('failed');
+        // Connection failed - notify if we were connected
+        if (this.isConnected) {
+          this.notifyDisconnect();
+        }
+      } else if (state === 'disconnected' || state === 'closed') {
+        // Peer connection lost - notify if we were connected
+        if (this.isConnected) {
+          this.notifyDisconnect();
+        }
+        this.callbacks.onStateChange('disconnected');
       }
     };
 
@@ -243,8 +174,7 @@ export class WebRTCConnection {
 
     this.dataChannel.onopen = () => {
       console.log('[DataChannel] Open');
-      this.reconnectAttempts = 0;
-      this.isReconnecting = false;
+      this.isConnected = true;
       this.callbacks.onStateChange('connected');
     };
 
@@ -259,11 +189,12 @@ export class WebRTCConnection {
 
     this.dataChannel.onclose = () => {
       console.log('[DataChannel] Closed');
-      this.callbacks.onStateChange('disconnected');
-      // Attempt reconnection if not already doing so
-      if (!this.isReconnecting && this.reconnectAttempts < this.reconnectConfig.maxAttempts) {
-        this.attemptReconnect();
+      // When data channel closes, the connection is lost - notify about peer disconnect
+      // Only notify if we were previously connected (not during setup failures)
+      if (this.isConnected) {
+        this.notifyDisconnect();
       }
+      this.callbacks.onStateChange('disconnected');
     };
 
     this.dataChannel.onerror = (error) => {
@@ -332,6 +263,20 @@ export class WebRTCConnection {
   }
 
   /**
+   * Notify about peer disconnect exactly once
+   * This prevents duplicate notifications from multiple disconnect sources
+   */
+  private notifyDisconnect(): void {
+    if (this.hasNotifiedDisconnect) {
+      console.log('[P2P] Disconnect already notified, skipping duplicate');
+      return;
+    }
+    this.hasNotifiedDisconnect = true;
+    console.log('[P2P] Notifying peer disconnect');
+    this.callbacks.onPeerDisconnected?.();
+  }
+
+  /**
    * Send game data to peer
    */
   send(data: unknown): void {
@@ -341,33 +286,19 @@ export class WebRTCConnection {
   }
 
   /**
-   * Close all connections (intentional disconnect, no reconnect)
+   * Close all connections
+   * This is for intentional disconnection (user action), not peer failure
    */
   disconnect(): void {
-    // Cancel any pending reconnect
-    this.cancelReconnect();
-    this.reconnectAttempts = this.reconnectConfig.maxAttempts; // Prevent auto-reconnect
-
+    // Don't notify on intentional disconnect
+    this.hasNotifiedDisconnect = true;
     this.dataChannel?.close();
     this.pc?.close();
     this.ws?.close();
     this.dataChannel = null;
     this.pc = null;
     this.ws = null;
-  }
-
-  /**
-   * Check if currently attempting to reconnect
-   */
-  isAttemptingReconnect(): boolean {
-    return this.isReconnecting;
-  }
-
-  /**
-   * Get current reconnection attempt number
-   */
-  getReconnectAttempt(): number {
-    return this.reconnectAttempts;
+    this.isConnected = false;
   }
 }
 

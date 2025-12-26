@@ -116,29 +116,44 @@ export function MoveNotation({
   }
 
   return (
-    <div className="move-notation">
+    <aside className="move-notation" aria-label="Move history">
       <div className="notation-header">
-        <span className="notation-title">📜 Moves</span>
-        <span className="move-total">
+        <span className="notation-title" id="moves-title">📜 Moves</span>
+        <span className="move-total" aria-live="polite">
           {isViewingHistory ? `${currentViewIndex + 1}/${totalMoves}` : `${totalMoves} moves`}
         </span>
       </div>
 
-      <div className="notation-body" ref={scrollRef}>
+      <div
+        className="notation-body"
+        ref={scrollRef}
+        role="log"
+        aria-labelledby="moves-title"
+        aria-live="polite"
+        aria-atomic="false"
+      >
         {movePairs.length === 0 ? (
-          <div className="notation-empty">Game not started</div>
+          <div className="notation-empty" role="status">Game not started</div>
         ) : (
-          movePairs.map((pair) => (
-            <div key={pair.number} className="notation-row">
-              <span className="move-num">{pair.number}.</span>
-              <span className={`white-move ${pair.white?.isQuantum ? 'quantum' : ''}`}>
-                {pair.white?.notation || '...'}
-              </span>
-              <span className={`black-move ${pair.black?.isQuantum ? 'quantum' : ''}`}>
-                {pair.black?.notation || ''}
-              </span>
-            </div>
-          ))
+          <div role="list" aria-label="List of moves">
+            {movePairs.map((pair) => (
+              <div key={pair.number} className="notation-row" role="listitem">
+                <span className="move-num" aria-hidden="true">{pair.number}.</span>
+                <span
+                  className={`white-move ${pair.white?.isQuantum ? 'quantum' : ''}`}
+                  aria-label={`Move ${pair.number} white: ${pair.white?.notation || 'pending'}${pair.white?.isQuantum ? ' (quantum)' : ''}`}
+                >
+                  {pair.white?.notation || '...'}
+                </span>
+                <span
+                  className={`black-move ${pair.black?.isQuantum ? 'quantum' : ''}`}
+                  aria-label={pair.black ? `Move ${pair.number} black: ${pair.black.notation}${pair.black.isQuantum ? ' (quantum)' : ''}` : ''}
+                >
+                  {pair.black?.notation || ''}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -160,7 +175,7 @@ export function MoveNotation({
         </div>
       )}
       */}
-    </div>
+    </aside>
   );
 }
 

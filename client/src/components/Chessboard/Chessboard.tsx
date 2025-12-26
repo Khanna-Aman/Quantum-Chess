@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { Chessboard as ReactChessboard } from 'react-chessboard';
 import type { Square } from 'chess.js';
 import type { QuantumGameState } from '../../engine/ChessEngine';
-import { getSuperpositionPieces, getBoardPosition, findPieceAtSquare } from '../../engine/ChessEngine';
+import { getSuperpositionPieces, getBoardPosition, findPieceAtSquare, getLegalMovesFromSquare } from '../../engine/ChessEngine';
 import './Chessboard.css';
 
 interface ChessboardProps {
@@ -98,43 +98,22 @@ export function Chessboard({
       (quantumPiece && quantumPiece.owner === playerColor);
 
     if (isOurPiece) {
-      // Select the piece and show legal moves
+      // Select the piece (no legal move indicators shown)
       setMoveFrom(square);
 
-      // Get legal moves - for quantum pieces at second position, we may need to compute differently
-      const moves = gameState.chess.moves({ square: square as Square, verbose: true });
+      // Get legal moves from this specific square (handles quantum positions correctly)
+      const moves = getLegalMovesFromSquare(gameState, square as Square);
       const targetSquares: Set<string> = new Set(moves.map(m => m.to));
-
-      // If no moves from chess.js but we have a quantum piece, get moves from the known position
-      if (moves.length === 0 && quantumPiece && quantumPiece.isInSuperposition) {
-        // Find where chess.js knows about this piece
-        for (const qPos of quantumPiece.positions) {
-          const sq = `${'abcdefgh'[qPos.position.file]}${qPos.position.rank + 1}` as Square;
-          const pieceThere = gameState.chess.get(sq);
-          if (pieceThere) {
-            // Get moves from that position
-            const originalMoves = gameState.chess.moves({ square: sq, verbose: true });
-            // Use the same target squares - the move will be validated in makeMove
-            originalMoves.forEach(m => targetSquares.add(m.to));
-            break;
-          }
-        }
-      }
 
       const newSquares: Record<string, React.CSSProperties> = {};
 
-      // Show legal move targets
+      // Store target squares for move validation (but don't show visual indicators)
       targetSquares.forEach(targetSq => {
-        // Check if there's a piece at target (capture)
-        const targetPiece = gameState.chess.get(targetSq as Square);
-        newSquares[targetSq] = {
-          background: targetPiece
-            ? 'radial-gradient(circle, rgba(255,0,0,.4) 85%, transparent 85%)'
-            : 'radial-gradient(circle, rgba(0,255,0,.3) 25%, transparent 25%)'
-        };
+        // Just mark as valid target, no visual indicator
+        newSquares[targetSq] = {};
       });
 
-      // Highlight selected square
+      // Highlight selected square only
       newSquares[square] = { background: 'rgba(255, 255, 0, 0.4)' };
 
       setOptionSquares(newSquares);

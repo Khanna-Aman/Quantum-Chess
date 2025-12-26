@@ -167,3 +167,64 @@
 .rematch-btn:disabled {
   opacity: 0.8;
 }
+
+.back-to-lobby-btn {
+  margin-top: 15px;
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #888;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.back-to-lobby-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #e0e0e0;
+}
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+  .game-end-modal {
+    padding: 24px 20px;
+    margin: 12px;
+    width: calc(100% - 24px);
+  }
+
+  .end-title {
+    font-size: 1.8em;
+  }
+
+  .end-subtitle {
+    font-size: 1em;
+    margin-bottom: 20px;
+  }
+
+  .game-stats {
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+
+  .stat-value {
+    font-size: 1.2em;
+  }
+
+  .end-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .end-actions .action-btn {
+    padding: 14px;
+    min-height: 48px;
+  }
+
+  .back-to-lobby-btn {
+    padding: 12px;
+    min-height: 44px;
+  }
+}

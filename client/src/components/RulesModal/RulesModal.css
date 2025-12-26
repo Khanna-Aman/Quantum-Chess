@@ -99,7 +99,8 @@
 .help-btn {
   position: fixed;
   bottom: 20px;
-  right: 20px;
+  left: 50%;
+  transform: translateX(-50%);
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -114,7 +115,7 @@
 }
 
 .help-btn:hover {
-  transform: scale(1.1);
+  transform: translateX(-50%) scale(1.1);
   box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
 }
 
@@ -137,3 +138,42 @@
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Mobile Responsive */
+@media (max-width: 600px) {
+  .rules-modal {
+    padding: 24px 20px;
+    max-height: 85vh;
+    margin: 10px;
+    width: calc(100% - 20px);
+  }
+
+  .rules-modal h2 {
+    font-size: 1.5em;
+    margin-bottom: 16px;
+    padding-right: 30px;
+    /* Space for close button */
+  }
+
+  .rules-modal h3 {
+    font-size: 1em;
+  }
+
+  .rules-modal p,
+  .rules-modal ul {
+    font-size: 0.9em;
+    line-height: 1.5;
+  }
+
+  .rules-modal section {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+  }
+
+  .rules-close {
+    width: 36px;
+    height: 36px;
+    top: 12px;
+    right: 12px;
+    font-size: 1.2em;
+  }
+}

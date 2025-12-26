@@ -25,15 +25,41 @@
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
+.chessboard-container {
+  --square-size: 70px;
+  display: grid;
+  grid-template-columns: repeat(8, var(--square-size));
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  touch-action: manipulation;
+  /* Prevent zoom on double-tap */
+}
+
+/* Mobile responsive square sizes */
+@media (max-width: 600px) {
+  .chessboard-container {
+    --square-size: min(11vw, 50px);
+  }
+}
+
+@media (max-width: 400px) {
+  .chessboard-container {
+    --square-size: 10.5vw;
+  }
+}
+
 .square {
-  width: 70px;
-  height: 70px;
+  width: var(--square-size);
+  height: var(--square-size);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   cursor: pointer;
   transition: background-color 0.15s ease;
+  /* Touch-friendly: larger tap target */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .square.light {
@@ -145,9 +171,31 @@
 }
 
 .piece-symbol {
-  font-size: 52px;
+  font-size: clamp(36px, 7vw, 52px);
   line-height: 1;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Mobile: smaller pieces */
+@media (max-width: 600px) {
+  .piece-symbol {
+    font-size: clamp(28px, 8vw, 40px);
+  }
+
+  .probability-badge {
+    font-size: 8px;
+    padding: 1px 3px;
+  }
+
+  .file-label,
+  .rank-label {
+    font-size: 9px;
+  }
+
+  .split-indicator {
+    font-size: 8px;
+    padding: 1px 3px;
+  }
 }
 
 .piece.white .piece-symbol {

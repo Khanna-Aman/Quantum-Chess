@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Square, PieceSymbol } from 'chess.js';
+import { type Square, type PieceSymbol } from 'chess.js';
 import {
   createGame,
   makeMove,
@@ -18,15 +18,28 @@ import {
 import { WebRTCConnection, type ConnectionState } from '../networking';
 
 export interface GameMessage {
-  type: 'move' | 'split' | 'sync_request' | 'sync_response' | 'fen' | 'resign' | 'rematch_request' | 'rematch_accept' | 'rematch_decline';
+  type: 'move' | 'split' | 'fen' | 'resign' | 'rematch_request' | 'rematch_accept' | 'rematch_decline' | 'time_sync';
   from?: string;
   to?: string;
   to2?: string; // For split moves
   promotion?: string;
   collapseSeed?: number;
   fen?: string;
-  gameState?: string;
   color?: 'white' | 'black'; // For resign message
+  whiteTimeMs?: number; // Time remaining in ms
+  blackTimeMs?: number; // Time remaining in ms
+}
+
+export interface TimeControl {
+  minutes: number;
+  increment: number;
+}
+
+export interface TimerState {
+  whiteTimeMs: number;
+  blackTimeMs: number;
+  activeColor: 'white' | 'black' | null; // null = game not started (before white's first move)
+  lastTickTime: number; // timestamp of last timer tick
 }
 
 interface UseChessGameOptions {
@@ -47,6 +60,20 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
   // Rematch state
   const [rematchRequested, setRematchRequested] = useState(false); // We sent a request
   const [rematchReceived, setRematchReceived] = useState(false);   // We received a request
+
+  // Peer disconnected state (game ends when peer disconnects)
+  const [peerDisconnected, setPeerDisconnected] = useState(false);
+
+  // Timer state
+  const [timeControl, setTimeControl] = useState<TimeControl>({ minutes: 5, increment: 0 });
+  const [timerState, setTimerState] = useState<TimerState>({
+    whiteTimeMs: 5 * 60 * 1000,
+    blackTimeMs: 5 * 60 * 1000,
+    activeColor: null, // null = waiting for white's first move
+    lastTickTime: 0
+  });
+  const [flaggedPlayer, setFlaggedPlayer] = useState<'white' | 'black' | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const connectionRef = useRef<WebRTCConnection | null>(null);
 
@@ -145,6 +172,25 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
         console.log('[Game] Rematch declined');
         setRematchRequested(false);
         break;
+
+      case 'time_sync':
+        // Sync timer state from opponent after their move
+        if (message.whiteTimeMs !== undefined && message.blackTimeMs !== undefined) {
+          setTimerState(prev => {
+            // Figure out whose turn it is now (opponent just moved, so it's our turn)
+            // If white time > previous, white just moved (got increment), so now black's turn
+            const wasWhiteMove = message.whiteTimeMs! > prev.whiteTimeMs - 200; // 200ms tolerance
+            const newActiveColor = wasWhiteMove ? 'black' : 'white';
+
+            return {
+              whiteTimeMs: message.whiteTimeMs!,
+              blackTimeMs: message.blackTimeMs!,
+              activeColor: prev.activeColor === null ? 'black' : newActiveColor as 'white' | 'black',
+              lastTickTime: Date.now()
+            };
+          });
+        }
+        break;
     }
   }, []);
 
@@ -157,15 +203,51 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     setGameState(createGame(true, maxSuperpositionsRef.current)); // Quantum mode enabled!
   }, []);
 
+  // Create WebRTC connection with all callbacks
+  const createConnection = useCallback(() => {
+    const connection = new WebRTCConnection({
+      onStateChange: setConnectionState,
+      onMessage: handleMessage,
+      onGameSeed: handleGameSeed,
+      onPeerDisconnected: () => {
+        // Peer disconnected - game ends
+        setPeerDisconnected(true);
+      }
+    });
+    return connection;
+  }, [handleMessage, handleGameSeed]);
+
+  // Initialize timer with time control settings
+  const initializeTimer = useCallback((minutes: number, increment: number) => {
+    const initialTimeMs = minutes * 60 * 1000;
+    setTimeControl({ minutes, increment });
+    setTimerState({
+      whiteTimeMs: initialTimeMs,
+      blackTimeMs: initialTimeMs,
+      activeColor: null, // Timer starts after white's first move
+      lastTickTime: 0
+    });
+    setFlaggedPlayer(null);
+  }, []);
+
   // Create a new room
-  const createRoom = useCallback(async (maxSuperpositions: number = 2) => {
+  const createRoom = useCallback(async (
+    maxSuperpositions: number = 2,
+    isPublic: boolean = false,
+    timeControlParam: TimeControl = { minutes: 5, increment: 0 }
+  ) => {
     try {
       maxSuperpositionsRef.current = maxSuperpositions;
       setError(null);
       const response = await fetch(`${serverUrl}/api/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed: Date.now(), maxSuperpositions })
+        body: JSON.stringify({
+          seed: Date.now(),
+          maxSuperpositions,
+          isPublic,
+          timeControl: timeControlParam
+        })
       });
 
       if (!response.ok) throw new Error('Failed to create room');
@@ -174,17 +256,15 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
       setRoomId(data.room_id);
       setPlayerColor(data.player_color as Player);
 
-      connectionRef.current = new WebRTCConnection({
-        onStateChange: setConnectionState,
-        onMessage: handleMessage,
-        onGameSeed: handleGameSeed
-      });
+      // Initialize timer with room settings
+      initializeTimer(data.time_control_minutes, data.time_control_increment);
 
+      connectionRef.current = createConnection();
       await connectionRef.current.connect(serverUrl, data.room_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create room');
     }
-  }, [serverUrl, handleMessage, handleGameSeed]);
+  }, [serverUrl, createConnection, initializeTimer]);
 
   // Join an existing room
   const joinRoom = useCallback(async (targetRoomId: string) => {
@@ -209,17 +289,47 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
       maxSuperpositionsRef.current = maxSup;
       setGameState(createGame(true, maxSup));
 
-      connectionRef.current = new WebRTCConnection({
-        onStateChange: setConnectionState,
-        onMessage: handleMessage,
-        onGameSeed: handleGameSeed
-      });
+      // Initialize timer with room settings
+      initializeTimer(data.time_control_minutes, data.time_control_increment);
 
+      connectionRef.current = createConnection();
       await connectionRef.current.connect(serverUrl, data.room_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join room');
     }
-  }, [serverUrl, handleMessage, handleGameSeed]);
+  }, [serverUrl, createConnection, initializeTimer]);
+
+  // Handle timer update after a move
+  const handleMoveTimer = useCallback((movingColor: 'white' | 'black') => {
+    setTimerState(prev => {
+      const now = Date.now();
+
+      // If this is white's first move, start the clock
+      if (prev.activeColor === null && movingColor === 'white') {
+        return {
+          ...prev,
+          activeColor: 'black', // After white moves, it's black's turn
+          lastTickTime: now
+        };
+      }
+
+      // Add increment to the player who just moved
+      const incrementMs = timeControl.increment * 1000;
+      const newWhiteTime = movingColor === 'white'
+        ? prev.whiteTimeMs + incrementMs
+        : prev.whiteTimeMs;
+      const newBlackTime = movingColor === 'black'
+        ? prev.blackTimeMs + incrementMs
+        : prev.blackTimeMs;
+
+      return {
+        whiteTimeMs: newWhiteTime,
+        blackTimeMs: newBlackTime,
+        activeColor: movingColor === 'white' ? 'black' : 'white',
+        lastTickTime: now
+      };
+    });
+  }, [timeControl.increment]);
 
   // Execute a classical move
   const executeMove = useCallback((from: Square, to: Square, promotion?: string): boolean => {
@@ -240,9 +350,22 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
 
     setGameState(result.newState);
 
+    // Update timer (add increment, switch active clock)
+    handleMoveTimer(playerColor);
+
     // Send move to peer with collapse seed
     connectionRef.current?.send({ type: 'move', from, to, promotion, collapseSeed });
     connectionRef.current?.send({ type: 'fen', fen: result.newState.chess.fen() });
+
+    // Send time sync after move
+    setTimerState(current => {
+      connectionRef.current?.send({
+        type: 'time_sync',
+        whiteTimeMs: current.whiteTimeMs,
+        blackTimeMs: current.blackTimeMs
+      });
+      return current;
+    });
 
     // Reset split mode
     setSplitMode(false);
@@ -250,7 +373,7 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     setSplitTo1(null);
 
     return true;
-  }, [gameState]);
+  }, [gameState, playerColor, handleMoveTimer]);
 
   // Execute a QUANTUM SPLIT move
   const executeSplitMove = useCallback((from: Square, to1: Square, to2: Square): boolean => {
@@ -265,8 +388,21 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
 
     setGameState(result.newState);
 
+    // Update timer (add increment, switch active clock)
+    handleMoveTimer(playerColor);
+
     // Send split to peer
     connectionRef.current?.send({ type: 'split', from, to: to1, to2 });
+
+    // Send time sync after move
+    setTimerState(current => {
+      connectionRef.current?.send({
+        type: 'time_sync',
+        whiteTimeMs: current.whiteTimeMs,
+        blackTimeMs: current.blackTimeMs
+      });
+      return current;
+    });
 
     // Reset split mode
     setSplitMode(false);
@@ -274,7 +410,7 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     setSplitTo1(null);
 
     return true;
-  }, [gameState]);
+  }, [gameState, playerColor, handleMoveTimer]);
 
   // Toggle split mode
   const toggleSplitMode = useCallback(() => {
@@ -336,6 +472,11 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
 
   // Disconnect
   const disconnect = useCallback(() => {
+    // Stop timer
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
     connectionRef.current?.disconnect();
     connectionRef.current = null;
     setConnectionState('disconnected');
@@ -346,6 +487,8 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     setSplitTo1(null);
     setRematchRequested(false);
     setRematchReceived(false);
+    setPeerDisconnected(false);
+    setFlaggedPlayer(null);
   }, []);
 
   // Request a rematch
@@ -366,7 +509,9 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     // Reset game state with swapped colors
     setPlayerColor(prev => prev === 'white' ? 'black' : 'white');
     setGameState(createGame(true, maxSuperpositionsRef.current));
-  }, []);
+    // Reset timer for new game
+    initializeTimer(timeControl.minutes, timeControl.increment);
+  }, [timeControl, initializeTimer]);
 
   // Decline a rematch request
   const declineRematch = useCallback(() => {
@@ -376,9 +521,90 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     setRematchReceived(false);
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
-    return () => { connectionRef.current?.disconnect(); };
+    return () => {
+      connectionRef.current?.disconnect();
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+    };
   }, []);
+
+  // Timer tick effect - runs every 100ms when game is active
+  useEffect(() => {
+    // Don't run timer if game hasn't started or is over or player flagged
+    if (!gameState || timerState.activeColor === null || flaggedPlayer) {
+      return;
+    }
+
+    const gameOver = isGameOver(gameState);
+    if (gameOver) {
+      return;
+    }
+
+    timerIntervalRef.current = setInterval(() => {
+      setTimerState(prev => {
+        if (prev.activeColor === null) return prev;
+
+        const now = Date.now();
+        const elapsed = prev.lastTickTime > 0 ? now - prev.lastTickTime : 0;
+
+        let newWhiteTime = prev.whiteTimeMs;
+        let newBlackTime = prev.blackTimeMs;
+
+        if (prev.activeColor === 'white') {
+          newWhiteTime = Math.max(0, prev.whiteTimeMs - elapsed);
+          if (newWhiteTime === 0) {
+            setFlaggedPlayer('white');
+          }
+        } else {
+          newBlackTime = Math.max(0, prev.blackTimeMs - elapsed);
+          if (newBlackTime === 0) {
+            setFlaggedPlayer('black');
+          }
+        }
+
+        return {
+          ...prev,
+          whiteTimeMs: newWhiteTime,
+          blackTimeMs: newBlackTime,
+          lastTickTime: now
+        };
+      });
+    }, 100);
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+  }, [gameState, timerState.activeColor, flaggedPlayer]);
+
+  // Handle flag (time ran out)
+  useEffect(() => {
+    if (flaggedPlayer && gameState) {
+      const winnerStatus = flaggedPlayer === 'white' ? 'black_wins' : 'white_wins';
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          gameStatus: winnerStatus as typeof prev.gameStatus,
+          result: winnerStatus,
+          resultReason: 'timeout'
+        };
+      });
+    }
+  }, [flaggedPlayer, gameState]);
+
+  // Reset timer on rematch
+  useEffect(() => {
+    if (gameState && timerState.activeColor === null && timerState.whiteTimeMs !== timeControl.minutes * 60 * 1000) {
+      // Game was reset (rematch), reinitialize timer
+      initializeTimer(timeControl.minutes, timeControl.increment);
+    }
+  }, [gameState, timerState.activeColor, timerState.whiteTimeMs, timeControl, initializeTimer]);
 
   return {
     // State
@@ -397,6 +623,14 @@ export function useChessGame({ serverUrl }: UseChessGameOptions) {
     // Rematch state
     rematchRequested,
     rematchReceived,
+
+    // Peer disconnected state (game ends when peer disconnects)
+    peerDisconnected,
+
+    // Timer state
+    timerState,
+    timeControl,
+    flaggedPlayer,
 
     // Actions
     createRoom, joinRoom, executeMove, executeSplitMove, disconnect,

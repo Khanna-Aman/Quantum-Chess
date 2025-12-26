@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import './RulesModal.css';
 
 interface RulesModalProps {
@@ -6,13 +7,50 @@ interface RulesModalProps {
 }
 
 export function RulesModal({ isOpen, onClose }: RulesModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Focus trap and keyboard handling
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Focus the close button when modal opens
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="rules-overlay" onClick={onClose}>
-      <div className="rules-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="rules-close" onClick={onClose}>×</button>
-        <h2>⚛️ Quantum Chess Rules</h2>
+    <div
+      className="rules-overlay"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rules-modal-title"
+    >
+      <div
+        className="rules-modal"
+        onClick={(e) => e.stopPropagation()}
+        ref={modalRef}
+      >
+        <button
+          className="rules-close"
+          onClick={onClose}
+          ref={closeButtonRef}
+          aria-label="Close rules modal"
+        >
+          ×
+        </button>
+        <h2 id="rules-modal-title">⚛️ Quantum Chess Rules</h2>
 
         <section>
           <h3>🎯 Objective</h3>
