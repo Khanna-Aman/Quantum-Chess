@@ -6,7 +6,7 @@
 
 **Split pieces into superposition. Collapse probabilities on capture. Outsmart your opponent in two realities at once.**
 
-[![Play Now](https://img.shields.io/badge/▶%20PLAY%20NOW-00C853?style=for-the-badge&logo=googlechrome&logoColor=white)]([https://qc-game.vercel.app](https://quantum-chess-game.vercel.app/)
+[![Play Now](https://img.shields.io/badge/▶%20PLAY%20NOW-00C853?style=for-the-badge&logo=googlechrome&logoColor=white)](https://quantum-chess-game.vercel.app/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
